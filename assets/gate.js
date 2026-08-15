@@ -1,12 +1,19 @@
-/* パスワードでスライド本体を復号して表示する。
+/* パスワードでページ本体を復号して表示する。入口 (private/) と各スライドで共用。
  *
  * ページに埋まっているのは暗号文だけで、平文はどこにも置かれていない。
+ * タイトルも暗号文の中にしかないので、解錠するまで何のページかは分からない。
+ *
  * 鍵は PBKDF2-HMAC-SHA256 (build.py と同じ回数) で 512 bit 導出し、
  * 前半を AES-CBC、後半を HMAC に使う。HMAC を先に検証してから復号する
  * （検証に通らない = パスワードが違う、と判定できる）。
+ *
+ * 一度解錠したら sessionStorage に控えて、入口 → スライドと辿るときに
+ * 訊き直さない。タブを閉じれば消える。
  */
 (function () {
   'use strict';
+
+  var SESSION_KEY = 'slides-pass';
 
   var form = document.getElementById('unlock-form');
   var input = document.getElementById('password');
@@ -24,6 +31,17 @@
     var out = new Uint8Array(raw.length);
     for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
     return out;
+  }
+
+  // プライベートブラウジングでは sessionStorage が触れないことがある。
+  function remember(value) {
+    try { window.sessionStorage.setItem(SESSION_KEY, value); } catch (e) {}
+  }
+  function recall() {
+    try { return window.sessionStorage.getItem(SESSION_KEY); } catch (e) { return null; }
+  }
+  function forget() {
+    try { window.sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
   }
 
   // crypto.subtle は安全なコンテキストでしか生えない（https / localhost / file:）。
@@ -76,27 +94,43 @@
       });
   }
 
-  form.addEventListener('submit', function (event) {
-    event.preventDefault();
-    var password = input.value;
-    if (!password) return;
+  function show(page) {
+    document.open();
+    document.write(page);
+    document.close();
+  }
 
+  function attempt(password, silent) {
     button.disabled = true;
     say('開いています…');
 
-    unlock(password).then(function (page) {
+    return unlock(password).then(function (page) {
       if (page === null) {
         button.disabled = false;
-        input.select();
-        say('パスワードが違います。', true);
+        if (silent) {
+          forget();
+          say('');
+        } else {
+          input.select();
+          say('パスワードが違います。', true);
+        }
         return;
       }
-      document.open();
-      document.write(page);
-      document.close();
+      remember(password);
+      show(page);
     }).catch(function () {
       button.disabled = false;
-      say('パスワードが違います。', true);
+      forget();
+      say(silent ? '' : 'パスワードが違います。', !silent);
     });
+  }
+
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+    if (input.value) attempt(input.value, false);
   });
+
+  // 入口で入れたパスワードがあれば、そのまま開く。
+  var saved = recall();
+  if (saved) attempt(saved, true);
 })();

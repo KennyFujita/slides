@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """スライドを公開用の HTML に書き出す。
 
-鍵付き (protected=True) のものは AES-256-CBC + HMAC-SHA256 で暗号化し、
-パスワードを入れた人だけが読める入口ページを作る。平文はこのリポジトリに
-入れない。SOURCES のパスはリポジトリ外を指している。
-
-パスワードは環境変数 SLIDES_PASSWORD、無ければ対話入力で受け取る。
-
     python3 build.py
+
+鍵付き (protected) のものは AES-256-CBC + HMAC-SHA256 で暗号化する。
+**タイトルは公開される HTML のどこにも出さない。** 入口 `private/index.html` も
+中身が暗号文で、解錠したときに初めてタイトルの一覧が現れる。読む人は入口だけ
+覚えておけばよく、個々のスライドのファイル名は無意味な文字列でかまわない。
+
+タイトルと平文の場所は decks.json にだけ書く。このファイルは .gitignore 済み。
+**リポジトリは公開なので、ここに戻して書かないこと**（履歴に永久に残る）。
+コミットメッセージにタイトルを書くのも同じ理由で不可（GitHub の公開イベント
+アーカイブに残る）。
 
 鍵導出は PBKDF2-HMAC-SHA256 (200,000 回) で 64 バイト。
 前半 32 バイトを AES 鍵、後半 32 バイトを HMAC 鍵に使う（encrypt-then-MAC）。
@@ -31,30 +35,10 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
-RESEARCH = Path("/Users/fujita/workspace/research/robot")
+DECKS = REPO / "decks.json"
+NOTES_URL = "https://kennyfujita.github.io/notes/"
 
 ITERATIONS = 200_000
-
-# protected が False のものは暗号化せず、そのまま読める1枚の HTML にする。
-# heading / subtitle は鍵付きのときだけ使う（入口ページの表紙に出る文言）。
-SOURCES = [
-    {
-        "out": "tac2pose.html",
-        "src": RESEARCH / "paper survey/tac2pose/slides.html",
-        "title": "Tac2Pose — Tactile Object Pose Estimation from the First Touch",
-        "lang": "ja",
-        "protected": False,
-    },
-    {
-        "out": "sparse-ft-pose.html",
-        "src": RESEARCH / "proposal/sparse-ft-pose/slides.html",
-        "title": "疎な指先力覚からの物体姿勢推定 — 提案構想",
-        "heading": "疎な指先力覚からの物体姿勢推定",
-        "subtitle": "提案構想",
-        "lang": "ja",
-        "protected": True,
-    },
-]
 
 
 def wrap_document(fragment: str, title: str, lang: str) -> str:
@@ -120,6 +104,76 @@ SAVE_BUTTON = """
 </body>"""
 
 
+# 入口を解錠すると現れる一覧。ここにだけタイトルが載る（暗号文の中なので公開されない）。
+LISTING = """<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>限定公開のノート</title>
+<link rel="stylesheet" href="../assets/gate.css">
+</head>
+<body>
+
+<main class="listing">
+  <h1>限定公開のノート</h1>
+  <p class="subtitle">タイトルをクリックすると、パスワードを入れ直さずに開きます。</p>
+
+  <ul class="deck-list">
+{rows}
+  </ul>
+
+  <p class="back"><a href="{notes}">&#8592; Notes</a></p>
+</main>
+
+</body>
+</html>
+"""
+
+LISTING_ROW = """    <li>
+      <span class="date">{date}</span>
+      <a href="../{out}">{title}</a>
+    </li>"""
+
+
+# 暗号文を置く入口ページ。タイトルは持たせない。個々のスライドにも入口自身にも使う。
+GATE = """<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>限定公開</title>
+<link rel="stylesheet" href="{prefix}assets/gate.css">
+</head>
+<body>
+
+<main class="gate">
+  <p class="lock" aria-hidden="true">&#128274;</p>
+  <h1>限定公開</h1>
+  <p class="subtitle">パスワードを知っている人だけが読めます。</p>
+
+  <form id="unlock-form" autocomplete="off">
+    <label for="password">パスワード</label>
+    <input type="password" id="password" name="password" autocomplete="current-password" autofocus>
+    <button type="submit" id="submit">開く</button>
+  </form>
+
+  <p class="status" id="status" role="status" aria-live="polite"></p>
+  <p class="back"><a href="{back}">&#8592; {back_label}</a></p>
+</main>
+
+<script type="application/json" id="payload">{payload}</script>
+<script src="{prefix}assets/gate.js"></script>
+
+</body>
+</html>
+"""
+
+
 def encrypt(plaintext: bytes, password: str) -> dict:
     salt = secrets.token_bytes(16)
     iv = secrets.token_bytes(16)
@@ -151,77 +205,64 @@ def encrypt(plaintext: bytes, password: str) -> dict:
     }
 
 
-GATE = """<!doctype html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>{title}</title>
-<link rel="stylesheet" href="./assets/gate.css">
-</head>
-<body>
-
-<main class="gate">
-  <p class="lock" aria-hidden="true">&#128274;</p>
-  <h1>{heading}</h1>
-  <p class="subtitle">{subtitle}</p>
-
-  <form id="unlock-form" autocomplete="off">
-    <label for="password">パスワード</label>
-    <input type="password" id="password" name="password" autocomplete="current-password" autofocus>
-    <button type="submit" id="submit">開く</button>
-  </form>
-
-  <p class="status" id="status" role="status" aria-live="polite"></p>
-  <p class="back"><a href="https://kennyfujita.github.io/notes/">&#8592; Notes</a></p>
-</main>
-
-<script type="application/json" id="payload">{payload}</script>
-<script src="./assets/gate.js"></script>
-
-</body>
-</html>
-"""
+def gate_page(plaintext: str, password: str, prefix: str, back: str, back_label: str) -> str:
+    payload = encrypt(plaintext.encode("utf-8"), password)
+    return GATE.format(
+        prefix=prefix,
+        back=back,
+        back_label=back_label,
+        payload=json.dumps(payload, separators=(",", ":")),
+    )
 
 
 def main() -> int:
-    need_password = any(item["protected"] for item in SOURCES)
+    if not DECKS.exists():
+        print(f"{DECKS.name} がありません。README を見てください。", file=sys.stderr)
+        return 1
+    decks = json.loads(DECKS.read_text(encoding="utf-8"))["decks"]
+
+    locked = [d for d in decks if d["protected"]]
     password = ""
-    if need_password:
+    if locked:
         password = os.environ.get("SLIDES_PASSWORD") or getpass.getpass("パスワード: ")
         if not password:
             print("パスワードが空です。", file=sys.stderr)
             return 1
 
-    for item in SOURCES:
-        src = item["src"]
+    for deck in decks:
+        src = Path(deck["src"])
         if not src.exists():
             print(f"見つかりません: {src}", file=sys.stderr)
             return 1
 
-        document = wrap_document(src.read_text(encoding="utf-8"), item["title"], item["lang"])
+        document = wrap_document(src.read_text(encoding="utf-8"), deck["title"], deck["lang"])
 
-        if not item["protected"]:
-            page = document
-            note = "鍵なし"
+        if not deck["protected"]:
+            page, note = document, "鍵なし"
         else:
             document = document.replace(
-                "</body>",
-                SAVE_BUTTON.format(filename=json.dumps(item["out"])),
-                1,
-            )
-            page = GATE.format(
-                title=html.escape(item["title"]),
-                heading=html.escape(item["heading"]),
-                subtitle=html.escape(item["subtitle"]),
-                payload=json.dumps(encrypt(document.encode("utf-8"), password),
-                                   separators=(",", ":")),
-            )
+                "</body>", SAVE_BUTTON.format(filename=json.dumps(deck["out"])), 1)
+            page = gate_page(document, password,
+                             prefix="./", back="./private/", back_label="限定公開のノート")
             note = "鍵付き"
 
-        (REPO / item["out"]).write_text(page, encoding="utf-8")
-        print(f"{item['out']}: {note} / 本文 {len(document):,} B → ページ {len(page):,} B")
+        (REPO / deck["out"]).write_text(page, encoding="utf-8")
+        print(f"{deck['out']}: {note} / 本文 {len(document):,} B → ページ {len(page):,} B")
+
+    # 入口。タイトルの一覧そのものを暗号化する。
+    if locked:
+        rows = "\n".join(
+            LISTING_ROW.format(date=html.escape(d["date"]),
+                               out=html.escape(d["out"]),
+                               title=html.escape(d["title"]))
+            for d in locked)
+        listing = LISTING.format(rows=rows, notes=NOTES_URL)
+        page = gate_page(listing, password,
+                         prefix="../", back=NOTES_URL, back_label="Notes")
+        out = REPO / "private/index.html"
+        out.parent.mkdir(exist_ok=True)
+        out.write_text(page, encoding="utf-8")
+        print(f"private/index.html: 入口 / {len(locked)} 件 → ページ {len(page):,} B")
 
     return 0
 
