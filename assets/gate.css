@@ -1,0 +1,187 @@
+/* 鍵付きスライドの入口。個人サイト (KennyFujita.github.io) の配色に合わせている。 */
+
+@import url('https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap');
+
+:root {
+  --bg: #fbfbfa;
+  --fg: #1c1c1a;
+  --muted: #6b6b66;
+  --faint: #97978f;
+  --border: #e2e2dd;
+  --accent: #2f6f6b;
+  --danger: #a4413a;
+  --radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16161a;
+    --fg: #e8e8e4;
+    --muted: #a3a39c;
+    --faint: #7c7c75;
+    --border: #2e2e33;
+    --accent: #6fb3ae;
+    --danger: #d98a83;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'BIZ UDPGothic',
+               'Hiragino Sans', sans-serif;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+.gate {
+  max-width: 26rem;
+  margin: 0 auto;
+  padding: 18vh 1.25rem 4rem;
+  text-align: center;
+}
+
+.lock {
+  font-size: 2rem;
+  margin: 0 0 0.75rem;
+  line-height: 1;
+}
+
+h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0 0 0.35rem;
+  letter-spacing: 0.01em;
+}
+
+.subtitle {
+  margin: 0 0 2.25rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  text-align: left;
+}
+
+label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+button {
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--bg);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.status {
+  min-height: 1.7em;
+  margin: 0.9rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.status.error { color: var(--danger); }
+
+/* ------------------------------------------------------- 一覧ページ ---- */
+
+.listing {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 4rem 1.25rem;
+}
+
+.listing h1 {
+  font-size: 1.6rem;
+  margin-bottom: 0.4rem;
+}
+
+.listing .subtitle {
+  margin-bottom: 2rem;
+}
+
+.deck-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.deck-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.9rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.deck-list .date {
+  flex: 0 0 6rem;
+  color: var(--faint);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.deck-list a {
+  color: var(--fg);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.deck-list a:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+@media (max-width: 34rem) {
+  .deck-list .date { flex-basis: auto; }
+}
+
+.back {
+  margin: 2.5rem 0 0;
+  font-size: 0.85rem;
+}
+
+.back a {
+  color: var(--faint);
+  text-decoration: none;
+}
+
+.back a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}

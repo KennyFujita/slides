@@ -1,0 +1,9 @@
+.DS_Store
+__pycache__/
+
+# 平文のスライドは絶対にコミットしない（一度入れると git 履歴から消えない）
+*.src.html
+slides-plain/
+
+# 動作確認用に作る使い捨てページ
+_test-*.html
