@@ -26,7 +26,8 @@
     return out;
   }
 
-  // crypto.subtle は https か localhost でしか生えない。file:// で開くと undefined。
+  // crypto.subtle は安全なコンテキストでしか生えない（https / localhost / file:）。
+  // 平文の http:// で置いた場合だけここに落ちる。
   if (!window.crypto || !window.crypto.subtle) {
     say('このページは https でのみ動きます。', true);
     button.disabled = true;

@@ -167,6 +167,17 @@ button:disabled {
   border-bottom-color: var(--accent);
 }
 
+/* 鍵なしスライドの保存リンク。鍵付きのものは復号後のページ側にボタンがある。 */
+.deck-list .dl {
+  font-size: 0.8rem;
+  color: var(--faint);
+  border-bottom: none;
+}
+
+.deck-list .dl:hover {
+  color: var(--accent);
+}
+
 @media (max-width: 34rem) {
   .deck-list .date { flex-basis: auto; }
 }

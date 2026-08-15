@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""平文のスライドを AES-256-CBC + HMAC-SHA256 で暗号化し、公開用の HTML を書き出す。
+"""スライドを公開用の HTML に書き出す。
 
-平文はこのリポジトリに入れない。SOURCES のパスはリポジトリ外を指している。
+鍵付き (protected=True) のものは AES-256-CBC + HMAC-SHA256 で暗号化し、
+パスワードを入れた人だけが読める入口ページを作る。平文はこのリポジトリに
+入れない。SOURCES のパスはリポジトリ外を指している。
+
 パスワードは環境変数 SLIDES_PASSWORD、無ければ対話入力で受け取る。
 
     python3 build.py
@@ -32,15 +35,15 @@ RESEARCH = Path("/Users/fujita/workspace/research/robot")
 
 ITERATIONS = 200_000
 
-# 出力名: (平文の場所, <title>, 表紙に出す見出し, 補足)
+# protected が False のものは暗号化せず、そのまま読める1枚の HTML にする。
+# heading / subtitle は鍵付きのときだけ使う（入口ページの表紙に出る文言）。
 SOURCES = [
     {
         "out": "tac2pose.html",
         "src": RESEARCH / "paper survey/tac2pose/slides.html",
         "title": "Tac2Pose — Tactile Object Pose Estimation from the First Touch",
-        "heading": "Tac2Pose",
-        "subtitle": "論文紹介 · Tactile Object Pose Estimation from the First Touch",
         "lang": "ja",
+        "protected": False,
     },
     {
         "out": "sparse-ft-pose.html",
@@ -49,6 +52,7 @@ SOURCES = [
         "heading": "疎な指先力覚からの物体姿勢推定",
         "subtitle": "提案構想",
         "lang": "ja",
+        "protected": True,
     },
 ]
 
@@ -64,6 +68,56 @@ def wrap_document(fragment: str, title: str, lang: str) -> str:
         f"<title>{html.escape(title)}</title>\n</head>\n<body>\n"
         f"{fragment}\n</body>\n</html>\n"
     )
+
+
+# 鍵付きスライドにだけ差し込む保存ボタン。復号できた人の手元にしか現れない。
+# 保存するときはボタン自身とこのスクリプトを取り除いてから直列化するので、
+# 落ちてくるファイルは元のスライドそのものになる（開き直しても何も出ない）。
+SAVE_BUTTON = """
+<div id="deck-save"><button type="button">&#11015; 保存</button></div>
+<style id="deck-save-css">
+  #deck-save {{
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 9999;
+  }}
+  #deck-save button {{
+    font: inherit;
+    font-size: 0.8rem;
+    padding: 0.4em 0.9em;
+    color: var(--muted, #5B6270);
+    background: var(--paper-raised, #E7EAEA);
+    border: 1px solid var(--line, #D8DCDC);
+    border-radius: 999px;
+    cursor: pointer;
+    opacity: 0.55;
+    transition: opacity 0.15s;
+  }}
+  #deck-save button:hover {{ opacity: 1; }}
+  @media print {{ #deck-save {{ display: none; }} }}
+</style>
+<script id="deck-save-js">
+(function () {{
+  document.querySelector('#deck-save button').addEventListener('click', function () {{
+    var root = document.documentElement.cloneNode(true);
+    ['#deck-save', '#deck-save-css', '#deck-save-js'].forEach(function (sel) {{
+      var el = root.querySelector(sel);
+      if (el) el.parentNode.removeChild(el);
+    }});
+    var url = URL.createObjectURL(new Blob(
+      ['<!doctype html>\\n' + root.outerHTML], {{ type: 'text/html' }}));
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = {filename};
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () {{ URL.revokeObjectURL(url); }}, 1000);
+  }});
+}})();
+</script>
+</body>"""
 
 
 def encrypt(plaintext: bytes, password: str) -> dict:
@@ -132,10 +186,13 @@ GATE = """<!doctype html>
 
 
 def main() -> int:
-    password = os.environ.get("SLIDES_PASSWORD") or getpass.getpass("パスワード: ")
-    if not password:
-        print("パスワードが空です。", file=sys.stderr)
-        return 1
+    need_password = any(item["protected"] for item in SOURCES)
+    password = ""
+    if need_password:
+        password = os.environ.get("SLIDES_PASSWORD") or getpass.getpass("パスワード: ")
+        if not password:
+            print("パスワードが空です。", file=sys.stderr)
+            return 1
 
     for item in SOURCES:
         src = item["src"]
@@ -144,17 +201,27 @@ def main() -> int:
             return 1
 
         document = wrap_document(src.read_text(encoding="utf-8"), item["title"], item["lang"])
-        payload = encrypt(document.encode("utf-8"), password)
 
-        page = GATE.format(
-            title=html.escape(item["title"]),
-            heading=html.escape(item["heading"]),
-            subtitle=html.escape(item["subtitle"]),
-            payload=json.dumps(payload, separators=(",", ":")),
-        )
-        out = REPO / item["out"]
-        out.write_text(page, encoding="utf-8")
-        print(f"{item['out']}: 平文 {len(document):,} B → ページ {len(page):,} B")
+        if not item["protected"]:
+            page = document
+            note = "鍵なし"
+        else:
+            document = document.replace(
+                "</body>",
+                SAVE_BUTTON.format(filename=json.dumps(item["out"])),
+                1,
+            )
+            page = GATE.format(
+                title=html.escape(item["title"]),
+                heading=html.escape(item["heading"]),
+                subtitle=html.escape(item["subtitle"]),
+                payload=json.dumps(encrypt(document.encode("utf-8"), password),
+                                   separators=(",", ":")),
+            )
+            note = "鍵付き"
+
+        (REPO / item["out"]).write_text(page, encoding="utf-8")
+        print(f"{item['out']}: {note} / 本文 {len(document):,} B → ページ {len(page):,} B")
 
     return 0
 
