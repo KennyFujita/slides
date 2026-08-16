@@ -3,10 +3,10 @@
 
     python3 build.py
 
-鍵付き (protected) のものは AES-256-CBC + HMAC-SHA256 で暗号化する。
-**タイトルは公開される HTML のどこにも出さない。** 入口 `private/index.html` も
-中身が暗号文で、解錠したときに初めてタイトルの一覧が現れる。読む人は入口だけ
-覚えておけばよく、個々のスライドのファイル名は無意味な文字列でかまわない。
+すべて AES-256-CBC + HMAC-SHA256 で暗号化する。**タイトルは公開される HTML の
+どこにも出さない。** 入口 `private/index.html` も中身が暗号文で、解錠したときに
+初めてタイトルの一覧が現れる。読む人は入口だけ覚えておけばよく、個々のスライドの
+ファイル名は無意味な文字列でかまわない。
 
 タイトルと平文の場所は decks.json にだけ書く。このファイルは .gitignore 済み。
 **リポジトリは公開なので、ここに戻して書かないこと**（履歴に永久に残る）。
@@ -28,6 +28,7 @@ import hmac
 import html
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -39,6 +40,13 @@ DECKS = REPO / "decks.json"
 NOTES_URL = "https://kennyfujita.github.io/notes/"
 
 ITERATIONS = 200_000
+
+
+def download_name(title: str) -> str:
+    """保存したときのファイル名。暗号文の中にしか出ないので題名のままでよい。"""
+    name = re.sub(r'[\\/:*?"<>|]', "", title)
+    name = re.sub(r"\s+", " ", name).strip()
+    return (name or "slides") + ".html"
 
 
 def wrap_document(fragment: str, title: str, lang: str) -> str:
@@ -54,7 +62,7 @@ def wrap_document(fragment: str, title: str, lang: str) -> str:
     )
 
 
-# 鍵付きスライドにだけ差し込む保存ボタン。復号できた人の手元にしか現れない。
+# スライドに差し込む保存ボタン。復号できた人の手元にしか現れない。
 # 保存するときはボタン自身とこのスクリプトを取り除いてから直列化するので、
 # 落ちてくるファイルは元のスライドそのものになる（開き直しても何も出ない）。
 SAVE_BUTTON = """
@@ -105,6 +113,7 @@ SAVE_BUTTON = """
 
 
 # 入口を解錠すると現れる一覧。ここにだけタイトルが載る（暗号文の中なので公開されない）。
+# 保存ボタンは listing.js が受け持ち、押されたら暗号文を取ってきてその場で復号する。
 LISTING = """<!doctype html>
 <html lang="ja">
 <head>
@@ -119,14 +128,21 @@ LISTING = """<!doctype html>
 
 <main class="listing">
   <h1>限定公開のノート</h1>
-  <p class="subtitle">タイトルをクリックすると、パスワードを入れ直さずに開きます。</p>
+  <p class="subtitle">
+    タイトルをクリックすると、パスワードを入れ直さずに開きます。
+    「保存」で落としたファイルもパスワードなしで開きます。
+  </p>
 
   <ul class="deck-list">
 {rows}
   </ul>
 
+  <p class="dl-status" id="dl-status" role="status" aria-live="polite"></p>
   <p class="back"><a href="{notes}">&#8592; Notes</a></p>
 </main>
+
+<script src="../assets/crypto.js"></script>
+<script src="../assets/listing.js"></script>
 
 </body>
 </html>
@@ -135,6 +151,7 @@ LISTING = """<!doctype html>
 LISTING_ROW = """    <li>
       <span class="date">{date}</span>
       <a href="../{out}">{title}</a>
+      <button type="button" class="dl" data-src="../{out}" data-name="{filename}">&#11015; 保存</button>
     </li>"""
 
 
@@ -167,6 +184,7 @@ GATE = """<!doctype html>
 </main>
 
 <script type="application/json" id="payload">{payload}</script>
+<script src="{prefix}assets/crypto.js"></script>
 <script src="{prefix}assets/gate.js"></script>
 
 </body>
@@ -206,28 +224,25 @@ def encrypt(plaintext: bytes, password: str) -> dict:
 
 
 def gate_page(plaintext: str, password: str, prefix: str, back: str, back_label: str) -> str:
-    payload = encrypt(plaintext.encode("utf-8"), password)
     return GATE.format(
         prefix=prefix,
         back=back,
         back_label=back_label,
-        payload=json.dumps(payload, separators=(",", ":")),
+        payload=json.dumps(encrypt(plaintext.encode("utf-8"), password),
+                           separators=(",", ":")),
     )
 
 
 def main() -> int:
     if not DECKS.exists():
-        print(f"{DECKS.name} がありません。README を見てください。", file=sys.stderr)
+        print(f"{DECKS.name} がありません。CLAUDE.md を見てください。", file=sys.stderr)
         return 1
     decks = json.loads(DECKS.read_text(encoding="utf-8"))["decks"]
 
-    locked = [d for d in decks if d["protected"]]
-    password = ""
-    if locked:
-        password = os.environ.get("SLIDES_PASSWORD") or getpass.getpass("パスワード: ")
-        if not password:
-            print("パスワードが空です。", file=sys.stderr)
-            return 1
+    password = os.environ.get("SLIDES_PASSWORD") or getpass.getpass("パスワード: ")
+    if not password:
+        print("パスワードが空です。", file=sys.stderr)
+        return 1
 
     for deck in decks:
         src = Path(deck["src"])
@@ -236,33 +251,28 @@ def main() -> int:
             return 1
 
         document = wrap_document(src.read_text(encoding="utf-8"), deck["title"], deck["lang"])
-
-        if not deck["protected"]:
-            page, note = document, "鍵なし"
-        else:
-            document = document.replace(
-                "</body>", SAVE_BUTTON.format(filename=json.dumps(deck["out"])), 1)
-            page = gate_page(document, password,
-                             prefix="./", back="./private/", back_label="限定公開のノート")
-            note = "鍵付き"
-
+        document = document.replace(
+            "</body>",
+            SAVE_BUTTON.format(filename=json.dumps(download_name(deck["title"]))),
+            1)
+        page = gate_page(document, password,
+                         prefix="./", back="./private/", back_label="限定公開のノート")
         (REPO / deck["out"]).write_text(page, encoding="utf-8")
-        print(f"{deck['out']}: {note} / 本文 {len(document):,} B → ページ {len(page):,} B")
+        print(f"{deck['out']}: 本文 {len(document):,} B → ページ {len(page):,} B")
 
     # 入口。タイトルの一覧そのものを暗号化する。
-    if locked:
-        rows = "\n".join(
-            LISTING_ROW.format(date=html.escape(d["date"]),
-                               out=html.escape(d["out"]),
-                               title=html.escape(d["title"]))
-            for d in locked)
-        listing = LISTING.format(rows=rows, notes=NOTES_URL)
-        page = gate_page(listing, password,
-                         prefix="../", back=NOTES_URL, back_label="Notes")
-        out = REPO / "private/index.html"
-        out.parent.mkdir(exist_ok=True)
-        out.write_text(page, encoding="utf-8")
-        print(f"private/index.html: 入口 / {len(locked)} 件 → ページ {len(page):,} B")
+    rows = "\n".join(
+        LISTING_ROW.format(date=html.escape(d["date"]),
+                           out=html.escape(d["out"]),
+                           title=html.escape(d["title"]),
+                           filename=html.escape(download_name(d["title"]), quote=True))
+        for d in decks)
+    listing = LISTING.format(rows=rows, notes=NOTES_URL)
+    page = gate_page(listing, password, prefix="../", back=NOTES_URL, back_label="Notes")
+    out = REPO / "private/index.html"
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(page, encoding="utf-8")
+    print(f"private/index.html: 入口 / {len(decks)} 件 → ページ {len(page):,} B")
 
     return 0
 

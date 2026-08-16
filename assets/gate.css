@@ -167,6 +167,39 @@ button:disabled {
   border-bottom-color: var(--accent);
 }
 
+/* 解錠後の一覧に出る保存ボタン。押すとその場で復号して平文を落とす。 */
+.deck-list .dl {
+  margin-left: auto;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.2em 0.8em;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.deck-list .dl:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.deck-list .dl:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dl-status {
+  min-height: 1.7em;
+  margin: 0.9rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.dl-status.error { color: var(--danger); }
+
 @media (max-width: 34rem) {
   .deck-list .date { flex-basis: auto; }
 }
